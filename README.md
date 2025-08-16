@@ -18,7 +18,7 @@ services:
     volumes:
       - /path/to/wizarr/database.db:/wizarr/database.db:ro
       - /path/to/authelia/users_database.yml:/authelia/users_database.yml:rw
-    user: "1000:1000"  # Match your user/group
+    # user: "1000:1000"  # Remove if you get permission errors
 ```
 
 ## Environment Variables
@@ -35,3 +35,15 @@ services:
 4. Logs obfuscated passwords to container logs
 
 Generated passwords are always obfuscated in main logs. Configure `SECURE_LOG_PATH` to access full passwords.
+
+## Troubleshooting
+
+**Permission denied errors?**
+
+Remove the `user:` line from your Docker Compose to run as root:
+
+```yaml
+# user: "1000:1000"  # Comment out or remove this line
+```
+
+This is safe because Authelia typically runs as root and owns its config files. The container only reads one database and writes to one config file.
