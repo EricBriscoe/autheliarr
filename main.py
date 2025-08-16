@@ -11,6 +11,7 @@ import secrets
 import string
 import logging
 import re
+import time
 from typing import Dict, List, Optional
 from pathlib import Path
 from argon2 import PasswordHasher
@@ -46,6 +47,7 @@ class AutheliarrSync:
         self.authelia_users_path = os.getenv('AUTHELIA_USERS_PATH', '/authelia/users_database.yml')
         self.default_group = os.getenv('DEFAULT_GROUP', 'plex_users')
         self.dry_run = os.getenv('DRY_RUN', 'false').lower() == 'true'
+        self.sync_interval = int(os.getenv('SYNC_INTERVAL', '0'))  # 0 = run once and exit
         
     def get_wizarr_users(self) -> List[Dict]:
         """Fetch users from Wizarr database"""
@@ -223,14 +225,38 @@ def main():
     logger.info(f"Authelia Users: {sync.authelia_users_path}")
     logger.info(f"Default Group: {sync.default_group}")
     logger.info(f"Dry Run: {sync.dry_run}")
+    logger.info(f"Sync Interval: {sync.sync_interval}s ({'periodic' if sync.sync_interval > 0 else 'run once'})")
     
-    try:
-        sync.sync_users()
-    except Exception as e:
-        logger.error(f"Sync failed: {e}")
-        exit(1)
-    
-    logger.info("Autheliarr finished successfully")
+    if sync.sync_interval > 0:
+        # Periodic mode
+        logger.info(f"Running in periodic mode - syncing every {sync.sync_interval} seconds")
+        
+        while True:
+            try:
+                sync.sync_users()
+                if sync.sync_interval > 0:
+                    logger.info(f"Waiting {sync.sync_interval} seconds until next sync...")
+                    time.sleep(sync.sync_interval)
+                else:
+                    break
+            except KeyboardInterrupt:
+                logger.info("Shutting down gracefully...")
+                break
+            except Exception as e:
+                logger.error(f"Sync failed: {e}")
+                if sync.sync_interval > 0:
+                    logger.info(f"Retrying in {sync.sync_interval} seconds...")
+                    time.sleep(sync.sync_interval)
+                else:
+                    exit(1)
+    else:
+        # Single run mode
+        try:
+            sync.sync_users()
+            logger.info("Autheliarr finished successfully")
+        except Exception as e:
+            logger.error(f"Sync failed: {e}")
+            exit(1)
 
 if __name__ == "__main__":
     main()
