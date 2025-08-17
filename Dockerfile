@@ -3,6 +3,7 @@ FROM python:3.11-alpine
 # Install system dependencies
 RUN apk add --no-cache \
     sqlite \
+    docker-cli \
     && rm -rf /var/cache/apk/*
 
 # Set working directory
