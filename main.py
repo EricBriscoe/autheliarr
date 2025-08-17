@@ -12,6 +12,7 @@ import string
 import logging
 import re
 import time
+import subprocess
 from typing import Dict, List, Optional
 from pathlib import Path
 from argon2 import PasswordHasher
@@ -48,6 +49,8 @@ class AutheliarrSync:
         self.default_group = os.getenv('DEFAULT_GROUP', 'plex_users')
         self.dry_run = os.getenv('DRY_RUN', 'false').lower() == 'true'
         self.sync_interval = int(os.getenv('SYNC_INTERVAL', '0'))  # 0 = run once and exit
+        self.authelia_container = os.getenv('AUTHELIA_CONTAINER', 'authelia')
+        self.restart_authelia = os.getenv('RESTART_AUTHELIA', 'true').lower() == 'true'
         
     def get_wizarr_users(self) -> List[Dict]:
         """Fetch users from Wizarr database"""
@@ -81,6 +84,39 @@ class AutheliarrSync:
             logger.error(f"Error reading Authelia users file: {e}")
             return {'users': {}}
     
+    def restart_authelia_container(self):
+        """Restart Authelia container to reload configuration"""
+        if self.dry_run:
+            logger.info("DRY RUN: Would restart Authelia container")
+            return True
+            
+        if not self.restart_authelia:
+            logger.info("Authelia restart disabled, skipping")
+            return True
+            
+        try:
+            logger.info(f"Restarting Authelia container: {self.authelia_container}")
+            result = subprocess.run(
+                ['docker', 'restart', self.authelia_container],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                logger.info("Authelia container restarted successfully")
+                return True
+            else:
+                logger.error(f"Failed to restart Authelia: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("Timeout while restarting Authelia container")
+            return False
+        except Exception as e:
+            logger.error(f"Error restarting Authelia container: {e}")
+            return False
+
     def save_authelia_users(self, users_data: Dict):
         """Save updated Authelia users"""
         if self.dry_run:
@@ -212,7 +248,12 @@ class AutheliarrSync:
         if new_users > 0 or updated_users > 0:
             authelia_data['users'] = authelia_users
             self.save_authelia_users(authelia_data)
-            logger.info(f"Sync complete: {new_users} new users, {updated_users} updated users")
+            
+            # Restart Authelia to reload configuration
+            if self.restart_authelia_container():
+                logger.info(f"Sync complete: {new_users} new users, {updated_users} updated users")
+            else:
+                logger.warning(f"Users updated but Authelia restart failed - changes may not be active")
         else:
             logger.info("No changes needed - all users are in sync")
 
@@ -225,6 +266,8 @@ def main():
     logger.info(f"Authelia Users: {sync.authelia_users_path}")
     logger.info(f"Default Group: {sync.default_group}")
     logger.info(f"Dry Run: {sync.dry_run}")
+    logger.info(f"Restart Authelia: {sync.restart_authelia}")
+    logger.info(f"Authelia Container: {sync.authelia_container}")
     logger.info(f"Sync Interval: {sync.sync_interval}s ({'periodic' if sync.sync_interval > 0 else 'run once'})")
     
     if sync.sync_interval > 0:
